@@ -8,6 +8,10 @@
 
 ## 下载 / 安装
 
+> 编译好的安装包和绿色版放在 [Releases](../../releases) 页，不放进 git 仓库
+> （`libmpv-2.dll` 30MB + `ffmpeg.exe` 87MB，压完也有 48MB）。
+> 没有 Release 也可以照下面的「从源码构建」自己打一个，全程不到 5 分钟。
+
 两种形态，功能完全一样：
 
 **① 安装版（推荐）** —— 双击 `LocalDouyin-Setup-1.0.0.exe` 走安装向导：
