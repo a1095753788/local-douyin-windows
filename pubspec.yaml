@@ -1,0 +1,47 @@
+name: local_douyin_win
+description: "本地抖音 · Windows 桌面版 —— 用抖音的方式刷本地视频"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── 播放：libmpv + FFmpeg，能解所有格式，不需要转码 ──
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_windows_video: ^1.0.11   # 必须，否则 Windows 上没有 libmpv
+
+  # ── 状态管理 ──
+  provider: ^6.1.5
+
+  # ── 数据库：sqflite 桌面版走 ffi ──
+  sqflite_common_ffi: ^2.4.5
+
+  # ── 路径 ──
+  path: ^1.9.1
+  path_provider: ^2.1.6
+
+  # ── 选文件夹 ──
+  file_picker: ^13.3.0
+
+  # ── 设置持久化 ──
+  shared_preferences: ^2.5.6
+
+  # ── 其他 ──
+  ffi: ^2.1.0             # 回收站 SHFileOperation 的 FFI 调用
+  uuid: ^4.6.0
+  wakelock_plus: ^1.8.2   # 播放时防息屏（SetThreadExecutionState）
+  watcher: ^1.2.1         # 文件夹监视（ReadDirectoryChangesW）
+  window_manager: ^0.5.2  # 窗口位置/大小记忆、置顶
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
