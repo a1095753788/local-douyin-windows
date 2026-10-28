@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../core/app_log.dart';
 import '../core/constants.dart';
 import '../data/models/video_item.dart';
 import '../data/repositories/video_repository.dart';
@@ -32,6 +33,16 @@ class PlayerProvider extends ChangeNotifier {
   double _volume = 1.0;
   bool _muted = false;
   String? _error;
+
+  /// 非致命提示：视频能播，只是某条轨（通常是音轨）有问题
+  String? _notice;
+
+  /// 代际号。每 open 一次 +1，用来丢掉上一条视频迟到的错误事件
+  int _openSeq = 0;
+
+  /// 错误判定延迟定时器（先等一等，看视频到底起没起来）
+  Timer? _errorTimer;
+
   String _hwdecActual = '';
   String _container = '';
   String _codec = '';
@@ -69,6 +80,7 @@ class PlayerProvider extends ChangeNotifier {
   double get volume => _volume;
   bool get muted => _muted;
   String? get error => _error;
+  String? get notice => _notice;
   String get hwdecActual => _hwdecActual;
   String get container => _container;
   String get codec => _codec;
@@ -144,10 +156,101 @@ class PlayerProvider extends ChangeNotifier {
     );
     _subs.add(
       p.stream.error.listen((e) {
-        _error = e;
-        notifyListeners();
+        _onPlayerError(e);
       }),
     );
+  }
+
+  /// 收到 mpv 的错误事件
+  ///
+  /// 关键认知：media_kit 的 `stream.error` **不是**「视频打不开」的意思。
+  /// 它只是把 mpv 日志里 level=error 的消息原样转出来，来源包括：
+  ///   - `ad`  音频解码器 → "Error decoding audio."（画面照样正常播）
+  ///   - `vd`  视频解码器
+  ///   - `cplayer` / `stream` / `ffmpeg` 各种杂音
+  ///
+  /// 所以不能一收到就盖住整个画面。判定办法是**等 1.5 秒看视频有没有真的起来**：
+  ///   - 进度在走，或已经读出了时长 → 文件能打开，这只是一条轨的小毛病 → 降级为提示
+  ///   - 什么都没有 → 真打不开 → 才算致命错误
+  void _onPlayerError(String raw) {
+    final seq = _openSeq;
+    final posAtError = _position;
+
+    _errorTimer?.cancel();
+    _errorTimer = Timer(const Duration(milliseconds: 1500), () {
+      // 已经切到下一条了，这是上一条迟到的错误，丢掉
+      if (seq != _openSeq) return;
+
+      final canPlay = canPlayDespiteError(
+        posAtError: posAtError,
+        posNow: _position,
+        duration: _duration,
+      );
+
+      AppLog.w(
+        'player',
+        'mpv 错误 seq=$seq pos=${_position.inMilliseconds} '
+            'duration=${_duration.inMilliseconds} => '
+            '${canPlay ? "可播，忽略" : "不可播"} : $raw',
+      );
+
+      if (canPlay) {
+        _error = null;
+        // 只保留有意义的提示，别让后面一条无关杂音把它覆盖成 null
+        final n = noticeFor(raw);
+        if (n != null) _notice = n;
+      } else {
+        _error = friendlyError(raw);
+        _notice = null;
+      }
+      notifyListeners();
+    });
+  }
+
+  /// 收到错误 1.5 秒后，判断「这条视频到底能不能看」
+  ///
+  /// 判据故意**不用** playing：`open(play: true)` 时 mpv 可能立刻把 playing
+  /// 置成 true，哪怕文件根本打不开。只认两条硬证据：
+  ///   1. 进度真的往前走了
+  ///   2. 已经读出了时长（说明容器/文件头是好的）
+  @visibleForTesting
+  static bool canPlayDespiteError({
+    required Duration posAtError,
+    required Duration posNow,
+    required Duration duration,
+  }) {
+    final advanced = posNow > posAtError + const Duration(milliseconds: 50);
+    final opened = duration > Duration.zero;
+    return advanced || opened;
+  }
+
+  /// 能播的情况下，只把「音轨坏了」这种用户会感知到的说一句，其余杂音吞掉
+  @visibleForTesting
+  static String? noticeFor(String raw) {
+    final s = raw.toLowerCase();
+    // mpv 的 ad（音频解码器）报错原文一般是
+    //   "Error decoding audio."
+    //   "Could not open codec."
+    // 只认 audio，宁可少提示也别误报
+    if (s.contains('audio')) {
+      return '这条视频的音轨解不开，已静音播放';
+    }
+    return null;
+  }
+
+  /// 真打不开时，把 mpv 的英文原文翻成人话
+  @visibleForTesting
+  static String friendlyError(String raw) {
+    final s = raw.toLowerCase();
+    if (s.contains('audio')) return '音频轨解码失败：$raw';
+    if (s.contains('video')) return '视频轨解码失败：$raw';
+    if (s.contains('no such file') || s.contains('not found')) {
+      return '文件找不到了，可能被移动或删除';
+    }
+    if (s.contains('failed to open') || s.contains('cannot open')) {
+      return '打不开这个文件：$raw';
+    }
+    return raw;
   }
 
   void _onPlayingChanged(bool playing) {
@@ -217,8 +320,13 @@ class PlayerProvider extends ChangeNotifier {
     await _saveProgressNow();
 
     // 2) 重置状态
+    // 代际号 +1：上一条视频迟到的错误事件会因为 seq 不匹配被丢掉，
+    // 否则会出现「上一条音轨报错，新的一条明明好好的却顶着红色遮罩」
+    _openSeq++;
+    _errorTimer?.cancel();
     _current = v;
     _error = null;
+    _notice = null;
     _position = Duration.zero;
     _duration = Duration.zero;
     _sessionPlayedMs = 0;
@@ -244,7 +352,8 @@ class PlayerProvider extends ChangeNotifier {
       // 5) 启动进度写回定时器
       _startSaveTimer();
     } catch (e) {
-      _error = e.toString();
+      _error = friendlyError(e.toString());
+      _notice = null;
       notifyListeners();
     }
   }
@@ -417,6 +526,10 @@ class PlayerProvider extends ChangeNotifier {
     await _saveProgressNow();
     _saveTimer?.cancel();
     _saveTimer = null;
+    _errorTimer?.cancel();
+    _openSeq++;
+    _error = null;
+    _notice = null;
     _current = null;
     _position = Duration.zero;
     _duration = Duration.zero;
@@ -440,6 +553,7 @@ class PlayerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _saveTimer?.cancel();
+    _errorTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }

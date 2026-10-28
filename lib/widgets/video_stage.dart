@@ -19,6 +19,10 @@ class VideoStage extends StatefulWidget {
   final bool playing;
   final bool buffering;
   final String? error;
+
+  /// 非致命提示（如「音轨解不开，已静音播放」）。
+  /// 和 error 的区别：error 会盖住整个画面，notice 只在角落飘一行小字。
+  final String? notice;
   final bool showThumbnail;
 
   /// 画面之上要叠的东西（弹幕等）
@@ -36,6 +40,7 @@ class VideoStage extends StatefulWidget {
     this.playing = false,
     this.buffering = false,
     this.error,
+    this.notice,
     this.showThumbnail = true,
     this.overlay,
     this.bottomOverlay,
@@ -124,8 +129,21 @@ class _VideoStageState extends State<VideoStage> {
               ),
 
             // 6) 错误
-            if (widget.error != null && widget.error!.isNotEmpty)
+            // 只有「确实没在播」才盖遮罩。mpv 的 error 事件里混着大量非致命日志
+            // （音轨解码失败、seek 失败、缓存抖动…），画面明明在跑还盖一层红框
+            // 会让人以为软件坏了。
+            if (widget.error != null &&
+                widget.error!.isNotEmpty &&
+                !widget.playing)
               _ErrorBanner(message: widget.error!),
+
+            // 6.5) 非致命提示：角落一行，不挡画面
+            if (widget.notice != null && widget.notice!.isNotEmpty)
+              Positioned(
+                right: 16,
+                bottom: 96,
+                child: IgnorePointer(child: _NoticeChip(text: widget.notice!)),
+              ),
 
             // 7) 底部信息
             if (widget.bottomOverlay != null)
@@ -153,6 +171,39 @@ class _VideoStageState extends State<VideoStage> {
       f,
       fit: BoxFit.contain,
       errorBuilder: (_, _, _) => ThumbPlaceholder(seed: v.id, iconSize: 56),
+    );
+  }
+}
+
+/// 角落小提示：视频能播，但有个小毛病（音轨坏了之类）
+class _NoticeChip extends StatelessWidget {
+  final String text;
+  const _NoticeChip({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.62),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.info_outline, size: 13, color: Colors.white70),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              height: 1.3,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

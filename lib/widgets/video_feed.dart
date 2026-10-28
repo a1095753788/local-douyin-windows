@@ -18,6 +18,7 @@ class VideoFeed extends StatefulWidget {
   final bool playing;
   final bool buffering;
   final String? error;
+  final String? notice;
 
   final Widget? overlay;
   final Widget? bottomOverlay;
@@ -36,6 +37,7 @@ class VideoFeed extends StatefulWidget {
     this.playing = false,
     this.buffering = false,
     this.error,
+    this.notice,
     this.overlay,
     this.bottomOverlay,
     this.onTap,
@@ -137,6 +139,7 @@ class _VideoFeedState extends State<VideoFeed>
             playing: widget.playing,
             buffering: widget.buffering,
             error: widget.error,
+            notice: widget.notice,
             overlay: widget.overlay,
             bottomOverlay: widget.bottomOverlay,
             onTap: widget.onTap,

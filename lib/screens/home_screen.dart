@@ -104,6 +104,7 @@ class HomeScreen extends StatelessWidget {
               playing: player.playing,
               buffering: player.buffering,
               error: player.error,
+              notice: player.notice,
               onNext: onNext,
               onPrev: onPrev,
               onTap: onPlayPause,
