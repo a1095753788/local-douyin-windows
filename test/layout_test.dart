@@ -8,6 +8,7 @@ import 'package:local_douyin_win/providers/settings_provider.dart';
 import 'package:local_douyin_win/providers/video_provider.dart';
 import 'package:local_douyin_win/screens/home_screen.dart';
 import 'package:local_douyin_win/widgets/app_context_menu.dart';
+import 'package:local_douyin_win/widgets/video_stage.dart';
 import 'package:provider/provider.dart';
 
 /// 布局体检
@@ -37,6 +38,7 @@ void main() {
     bool showInfo = false,
     bool showComments = false,
     int tab = 0,
+    bool immersive = false,
   }) {
     return MultiProvider(
       providers: [
@@ -62,6 +64,7 @@ void main() {
             showInfo: showInfo,
             showComments: showComments,
             danmakuOn: true,
+            immersive: immersive,
             onToggleInfo: () {},
             onToggleComments: () {},
             onToggleDanmaku: () {},
@@ -127,5 +130,40 @@ void main() {
       const Size(1280, 800),
       buildHome(size: const Size(1280, 800), tab: 1),
     );
+  });
+
+  // 回归测试：曾经把「收藏页空状态」写成条件表达式，不需要时返回
+  // SizedBox.shrink()。它是 Stack 的**非定位**子元素，Stack 会按它的尺寸
+  // 算大小，于是整个画面区域被压成 0×0，视频完全不显示。
+  // 这条测试就是防止再犯：画面区域必须有真实尺寸。
+  testWidgets('画面区域不能被压成 0', (tester) async {
+    await check(
+      tester,
+      const Size(1280, 800),
+      buildHome(size: const Size(1280, 800)),
+    );
+
+    final stage = find.byType(VideoStage);
+    expect(stage, findsOneWidget);
+    final s = tester.getSize(stage);
+    expect(s.width, greaterThan(400), reason: '画面宽度被压没了');
+    expect(s.height, greaterThan(400), reason: '画面高度被压没了');
+  });
+
+  testWidgets('全屏模式下画面区域同样不能被压成 0', (tester) async {
+    await check(
+      tester,
+      const Size(1280, 800),
+      buildHome(size: const Size(1280, 800), immersive: true),
+    );
+
+    final stage = find.byType(VideoStage);
+    expect(stage, findsOneWidget);
+    final s = tester.getSize(stage);
+    expect(s.width, greaterThan(400), reason: '全屏时画面宽度被压没了');
+    expect(s.height, greaterThan(400), reason: '全屏时画面高度被压没了');
+
+    // 收掉 AutoHide 的定时器，否则测试结束会报 pending timer
+    await tester.pumpWidget(const SizedBox());
   });
 }

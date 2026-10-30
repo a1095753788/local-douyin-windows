@@ -75,6 +75,21 @@ class HomeScreen extends StatelessWidget {
     required this.onAction,
   });
 
+  /// 收藏页空状态
+  ///
+  /// 必须是 Positioned。如果写成普通子元素（比如条件不满足时返回
+  /// SizedBox.shrink），Stack 就会按「非定位子元素」的尺寸算大小，
+  /// 而那个尺寸是 0×0 —— 整个画面区域会被压没，视频直接不显示。
+  static const Widget _emptyFavorites = Positioned.fill(
+    child: IgnorePointer(
+      child: EmptyState(
+        icon: Icons.star_border_rounded,
+        title: '收藏夹是空的',
+        subtitle: '在推荐流里点右侧的星标，视频就会收进这里。\n收藏过的视频不会再出现在推荐流里。',
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
@@ -193,19 +208,6 @@ class HomeScreen extends StatelessWidget {
             onMore: () => _showMoreMenu(context, v),
           );
 
-    // 收藏页空状态
-    final Widget emptyHint = favTab && length == 0
-        ? const Positioned.fill(
-            child: IgnorePointer(
-              child: EmptyState(
-                icon: Icons.star_border_rounded,
-                title: '收藏夹是空的',
-                subtitle: '在推荐流里点右侧的星标，视频就会收进这里。\n收藏过的视频不会再出现在推荐流里。',
-              ),
-            ),
-          )
-        : const SizedBox.shrink();
-
     final Widget feedArea;
 
     if (immersive) {
@@ -224,7 +226,7 @@ class HomeScreen extends StatelessWidget {
                   bottom: 168,
                   child: FadeControls(visible: visible, child: sideBarContent),
                 ),
-              emptyHint,
+              if (favTab && length == 0) _emptyFavorites,
             ],
           );
         },
@@ -236,7 +238,7 @@ class HomeScreen extends StatelessWidget {
           topBar,
           if (v != null)
             Positioned(right: 12, bottom: 168, child: sideBarContent),
-          emptyHint,
+          if (favTab && length == 0) _emptyFavorites,
         ],
       );
     }
