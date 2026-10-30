@@ -141,10 +141,23 @@ tool\build-installer.bat    :: 再打成 dist\LocalDouyin-Setup-1.0.0.exe
 | `M` | 静音 |
 | `[` `]` | 减速 / 加速 0.1x |
 | `1`~`6` | 倍速 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0 |
-| `F11` | 全屏 |
+| `F11` | 进入 / 退出全屏 |
 | `Ctrl+O` | 添加文件夹 |
 | `Ctrl+R` | 重扫全部 |
-| `Esc` | 关闭面板 |
+| `Esc` | 全屏时先退全屏；否则关闭面板 |
+
+### 全屏播放
+
+按 `F11` 或点播放条最右边的全屏按钮进入全屏，这时：
+
+- 侧边栏、顶部 tab、右侧操作条全部隐藏，画面铺满整个屏幕
+- **底部进度条和按钮会自动藏起来**，鼠标一动就出现
+- 静止 4 秒后淡出，鼠标指针也一起隐藏
+- 鼠标停在底部控制区时不淡出（正要点，别在这时候消失）
+- 暂停时一直显示（要操作）
+- 按 `Esc` 或 `F11` 退出
+
+这套行为跟 DPlayer / YouTube / PotPlayer / MPC-BE 是一致的。
 
 ---
 
@@ -199,6 +212,8 @@ flutter test
 ```
 
 - `recommendation_test.dart` —— 推荐算法 12 项（分档 / 打分 / 探索 / 多样性 / 池枯竭）
+- `auto_hide_test.dart` —— 全屏控制层自动显隐 7 项（4 秒淡出 / 鼠标唤醒 / 暂停常显）
+- `error_banner_test.dart` —— 播放中不误报「这条解不开」4 项
 - `layout_test.dart` —— 1280×800、900×600、开面板等场景无布局溢出
 - `platform_test.dart` —— 回收站 FFI、字节格式化
 - `ffmpeg_smoke_test.dart` —— 真实调用 ffmpeg 做定位 / 探测 / 截帧体检
@@ -239,7 +254,7 @@ tool/
 ├── build-installer.bat    打安装包
 ├── installer.iss          Inno Setup 脚本
 └── ChineseSimplified.isl  简体中文语言包（281 条，全译）
-test/               推荐算法 / 布局 / 平台 / ffmpeg 体检，共 28 项
+test/               推荐算法 / 布局 / 平台 / ffmpeg 体检，共 35 项
 ```
 
 ## 许可

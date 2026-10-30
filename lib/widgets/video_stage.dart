@@ -5,6 +5,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../core/theme.dart';
 import '../data/models/video_item.dart';
+import 'auto_hide.dart';
 import 'empty_state.dart';
 
 /// 视频画面
@@ -31,6 +32,9 @@ class VideoStage extends StatefulWidget {
   /// 底部渐变遮罩之上要叠的东西（标题、进度条）
   final Widget? bottomOverlay;
 
+  /// 底部控制层是否可见（全屏沉浸模式下由 AutoHide 控制）
+  final bool controlsVisible;
+
   final VoidCallback? onTap;
 
   const VideoStage({
@@ -44,6 +48,7 @@ class VideoStage extends StatefulWidget {
     this.showThumbnail = true,
     this.overlay,
     this.bottomOverlay,
+    this.controlsVisible = true,
     this.onTap,
   });
 
@@ -151,7 +156,10 @@ class _VideoStageState extends State<VideoStage> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: widget.bottomOverlay!,
+                child: FadeControls(
+                  visible: widget.controlsVisible,
+                  child: widget.bottomOverlay!,
+                ),
               ),
           ],
         ),

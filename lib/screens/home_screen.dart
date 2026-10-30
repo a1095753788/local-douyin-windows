@@ -8,6 +8,7 @@ import '../providers/player_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/video_provider.dart';
 import '../widgets/app_context_menu.dart';
+import '../widgets/auto_hide.dart';
 import '../widgets/comment_panel.dart';
 import '../widgets/danmaku_overlay.dart';
 import '../widgets/empty_state.dart';
@@ -30,6 +31,9 @@ class HomeScreen extends StatelessWidget {
   final bool showInfo;
   final bool showComments;
   final bool danmakuOn;
+
+  /// 全屏沉浸模式：隐藏侧边栏、顶部 tab，控制层跟着鼠标自动显隐
+  final bool immersive;
 
   final VoidCallback onToggleInfo;
   final VoidCallback onToggleComments;
@@ -56,6 +60,7 @@ class HomeScreen extends StatelessWidget {
     required this.showInfo,
     required this.showComments,
     required this.danmakuOn,
+    this.immersive = false,
     required this.onToggleInfo,
     required this.onToggleComments,
     required this.onToggleDanmaku,
@@ -80,118 +85,117 @@ class HomeScreen extends StatelessWidget {
     final v = video;
     final favTab = tab == 1;
 
-    Widget feedArea = Stack(
-      children: <Widget>[
-        Positioned.fill(
-          child: GestureDetector(
-            onSecondaryTapDown: v == null
-                ? null
-                : (d) async {
-                    final action = await showVideoContextMenu(
-                      context: context,
-                      globalPosition: d.globalPosition,
+    // 画面层：永远在，不参与淡入淡出。
+    // 做成函数是因为全屏时它的 controlsVisible 要由 AutoHide 决定。
+    Widget buildVideoLayer(bool controlsVisible) => Positioned.fill(
+      child: GestureDetector(
+        onSecondaryTapDown: v == null
+            ? null
+            : (d) async {
+                final action = await showVideoContextMenu(
+                  context: context,
+                  globalPosition: d.globalPosition,
+                  video: v,
+                  playing: player.playing,
+                );
+                if (action != null) {
+                  await onAction(action, v);
+                }
+              },
+        child: VideoFeed(
+          video: v,
+          index: index,
+          controller: player.controller,
+          playing: player.playing,
+          buffering: player.buffering,
+          error: player.error,
+          notice: player.notice,
+          onNext: onNext,
+          onPrev: onPrev,
+          onTap: onPlayPause,
+          overlay: v == null
+              ? null
+              : DanmakuOverlay(
+                  key: ValueKey<String>('dm-${v.id}'),
+                  pool: comments.danmakuPool,
+                  position: player.position,
+                  enabled: danmakuOn && settings.danmakuEnabled,
+                  opacity: settings.danmakuOpacity,
+                  lanes: settings.danmakuLanes,
+                  fontSize: settings.danmakuFontSize,
+                ),
+          bottomOverlay: v == null
+              ? null
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _TitleBlock(
                       video: v,
+                      positionText: '${index + 1} / $length',
+                    ),
+                    PlayerBar(
                       playing: player.playing,
-                    );
-                    if (action != null) {
-                      await onAction(action, v);
-                    }
-                  },
-            child: VideoFeed(
-              video: v,
-              index: index,
-              controller: player.controller,
-              playing: player.playing,
-              buffering: player.buffering,
-              error: player.error,
-              notice: player.notice,
-              onNext: onNext,
-              onPrev: onPrev,
-              onTap: onPlayPause,
-              overlay: v == null
-                  ? null
-                  : DanmakuOverlay(
-                      key: ValueKey<String>('dm-${v.id}'),
-                      pool: comments.danmakuPool,
                       position: player.position,
-                      enabled: danmakuOn && settings.danmakuEnabled,
-                      opacity: settings.danmakuOpacity,
-                      lanes: settings.danmakuLanes,
-                      fontSize: settings.danmakuFontSize,
+                      duration: player.duration,
+                      speed: player.speed,
+                      volume: player.volume,
+                      muted: player.muted,
+                      onPlayPause: onPlayPause,
+                      onSeek: player.seek,
+                      onSpeed: (s) {
+                        player.setSpeed(s);
+                        settings.setDefaultSpeed(s);
+                      },
+                      onVolume: player.setVolume,
+                      onToggleMute: player.toggleMute,
+                      onPrev: onPrev,
+                      onNext: onNext,
+                      onFullscreen: onFullscreen,
+                      fullscreen: immersive,
                     ),
-              bottomOverlay: v == null
-                  ? null
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        _TitleBlock(
-                          video: v,
-                          positionText: '${index + 1} / $length',
-                        ),
-                        PlayerBar(
-                          playing: player.playing,
-                          position: player.position,
-                          duration: player.duration,
-                          speed: player.speed,
-                          volume: player.volume,
-                          muted: player.muted,
-                          onPlayPause: onPlayPause,
-                          onSeek: player.seek,
-                          onSpeed: (s) {
-                            player.setSpeed(s);
-                            settings.setDefaultSpeed(s);
-                          },
-                          onVolume: player.setVolume,
-                          onToggleMute: player.toggleMute,
-                          onPrev: onPrev,
-                          onNext: onNext,
-                          onFullscreen: onFullscreen,
-                        ),
-                      ],
-                    ),
-            ),
-          ),
+                  ],
+                ),
+          controlsVisible: controlsVisible,
         ),
+      ),
+    );
 
-        // 顶部 tab
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: _TopBar(
-            tab: tab,
-            onTab: onTab,
-            onRefresh: onRefresh,
-            onAddFolder: onAddFolder,
-            favCount: videos.favorites.length,
-            recommendCount: videos.feedLength,
-          ),
-        ),
+    // 顶部 tab。全屏时不要——切页靠侧边栏，而侧边栏在全屏时已经藏了。
+    final Widget topBar = Positioned(
+      left: 0,
+      right: 0,
+      top: 0,
+      child: _TopBar(
+        tab: tab,
+        onTab: onTab,
+        onRefresh: onRefresh,
+        onAddFolder: onAddFolder,
+        favCount: videos.favorites.length,
+        recommendCount: videos.feedLength,
+      ),
+    );
 
-        // 右侧操作条
-        if (v != null)
-          Positioned(
-            right: 12,
-            bottom: 168,
-            child: SideActions(
-              video: v,
-              commentCount: videos.commentCountOf(v.id),
-              danmakuEnabled: danmakuOn,
-              infoVisible: showInfo,
-              onLike: () => onAction(VideoMenuAction.like, v),
-              onFavorite: () => onAction(VideoMenuAction.favorite, v),
-              onNotInterested: () => onAction(VideoMenuAction.notInterested, v),
-              onComment: onToggleComments,
-              onToggleDanmaku: onToggleDanmaku,
-              onToggleInfo: onToggleInfo,
-              onMore: () => _showMoreMenu(context, v),
-            ),
-          ),
+    // 右侧操作条（只做内容，Positioned 由外面加，方便套淡入淡出）
+    final Widget sideBarContent = v == null
+        ? const SizedBox.shrink()
+        : SideActions(
+            video: v,
+            commentCount: videos.commentCountOf(v.id),
+            danmakuEnabled: danmakuOn,
+            infoVisible: showInfo,
+            onLike: () => onAction(VideoMenuAction.like, v),
+            onFavorite: () => onAction(VideoMenuAction.favorite, v),
+            onNotInterested: () => onAction(VideoMenuAction.notInterested, v),
+            onComment: onToggleComments,
+            onToggleDanmaku: onToggleDanmaku,
+            onToggleInfo: onToggleInfo,
+            onMore: () => _showMoreMenu(context, v),
+          );
 
-        // 收藏页底部提示
-        if (favTab && length == 0)
-          const Positioned.fill(
+    // 收藏页空状态
+    final Widget emptyHint = favTab && length == 0
+        ? const Positioned.fill(
             child: IgnorePointer(
               child: EmptyState(
                 icon: Icons.star_border_rounded,
@@ -199,9 +203,43 @@ class HomeScreen extends StatelessWidget {
                 subtitle: '在推荐流里点右侧的星标，视频就会收进这里。\n收藏过的视频不会再出现在推荐流里。',
               ),
             ),
-          ),
-      ],
-    );
+          )
+        : const SizedBox.shrink();
+
+    final Widget feedArea;
+
+    if (immersive) {
+      // 全屏：只剩画面 + 会自己藏起来的控制层
+      feedArea = AutoHide(
+        enabled: true,
+        // 暂停时强制显示——用户按了暂停，多半正要操作
+        forceShow: !player.playing,
+        builder: (context, visible) {
+          return Stack(
+            children: <Widget>[
+              buildVideoLayer(visible),
+              if (v != null)
+                Positioned(
+                  right: 12,
+                  bottom: 168,
+                  child: FadeControls(visible: visible, child: sideBarContent),
+                ),
+              emptyHint,
+            ],
+          );
+        },
+      );
+    } else {
+      feedArea = Stack(
+        children: <Widget>[
+          buildVideoLayer(true),
+          topBar,
+          if (v != null)
+            Positioned(right: 12, bottom: 168, child: sideBarContent),
+          emptyHint,
+        ],
+      );
+    }
 
     return Row(
       children: <Widget>[

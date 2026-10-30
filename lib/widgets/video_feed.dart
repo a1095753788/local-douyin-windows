@@ -23,6 +23,9 @@ class VideoFeed extends StatefulWidget {
   final Widget? overlay;
   final Widget? bottomOverlay;
 
+  /// 底部控制层是否可见（全屏沉浸模式）
+  final bool controlsVisible;
+
   final VoidCallback onNext;
   final VoidCallback onPrev;
   final VoidCallback? onTap;
@@ -40,6 +43,7 @@ class VideoFeed extends StatefulWidget {
     this.notice,
     this.overlay,
     this.bottomOverlay,
+    this.controlsVisible = true,
     this.onTap,
   });
 
@@ -142,6 +146,7 @@ class _VideoFeedState extends State<VideoFeed>
             notice: widget.notice,
             overlay: widget.overlay,
             bottomOverlay: widget.bottomOverlay,
+            controlsVisible: widget.controlsVisible,
             onTap: widget.onTap,
           ),
         ),

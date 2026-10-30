@@ -411,7 +411,19 @@ class _AppShellState extends State<AppShell> with WindowListener {
   // ────────────────────── 全屏 ──────────────────────
 
   Future<void> _toggleFullScreen() async {
-    _fullScreen = !_fullScreen;
+    final entering = !_fullScreen;
+    _fullScreen = entering;
+
+    if (entering) {
+      // 全屏是「专心看视频」的语义：切回首页、把侧栏面板关掉，
+      // 否则屏幕铺满了却还有东西挡着
+      setState(() {
+        _page = 0;
+        _showInfo = false;
+        _showComments = false;
+      });
+    }
+
     await windowManager.setFullScreen(_fullScreen);
     if (mounted) setState(() {});
   }
@@ -457,6 +469,15 @@ class _AppShellState extends State<AppShell> with WindowListener {
     }
 
     if (key == LogicalKeyboardKey.escape) {
+      // 全屏时 Esc 先退全屏，顺手把面板也关掉
+      if (_fullScreen) {
+        setState(() {
+          _showComments = false;
+          _showInfo = false;
+        });
+        _toggleFullScreen();
+        return KeyEventResult.handled;
+      }
       if (_showComments || _showInfo) {
         setState(() {
           _showComments = false;
@@ -641,26 +662,31 @@ class _AppShellState extends State<AppShell> with WindowListener {
         onKeyEvent: _onKey,
         child: Row(
           children: <Widget>[
-            _Sidebar(
-              page: _page,
-              collapsed: _collapsed,
-              onPage: (i) {
-                if (i == _page) return;
-                setState(() => _page = i);
-                final settings = context.read<SettingsProvider>();
-                if (settings.pauseOnPageChange) {
-                  context.read<PlayerProvider>().pause();
-                }
-                _focus.requestFocus();
-              },
-              onToggleCollapse: () => setState(() => _collapsed = !_collapsed),
-            ),
-            const VerticalDivider(width: 1, color: AppTheme.border),
+            // 全屏时侧边栏整个不要，画面才能铺满
+            if (!_fullScreen) ...<Widget>[
+              _Sidebar(
+                page: _page,
+                collapsed: _collapsed,
+                onPage: (i) {
+                  if (i == _page) return;
+                  setState(() => _page = i);
+                  final settings = context.read<SettingsProvider>();
+                  if (settings.pauseOnPageChange) {
+                    context.read<PlayerProvider>().pause();
+                  }
+                  _focus.requestFocus();
+                },
+                onToggleCollapse: () =>
+                    setState(() => _collapsed = !_collapsed),
+              ),
+              const VerticalDivider(width: 1, color: AppTheme.border),
+            ],
             Expanded(
               child: Column(
                 children: <Widget>[
                   Expanded(child: _buildPage()),
-                  ScanBanner(folders: folders, onCancel: folders.cancelScan),
+                  if (!_fullScreen)
+                    ScanBanner(folders: folders, onCancel: folders.cancelScan),
                 ],
               ),
             ),
@@ -737,6 +763,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
       onCloseInfo: () => setState(() => _showInfo = false),
       onCloseComments: () => setState(() => _showComments = false),
       onFullscreen: _toggleFullScreen,
+      immersive: _fullScreen,
       onAction: _handleAction,
     );
   }

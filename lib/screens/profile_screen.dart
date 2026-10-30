@@ -723,10 +723,10 @@ class _ShortcutTable extends StatelessWidget {
     <String>['M', '静音'],
     <String>['[ / ]', '减速 / 加速 0.1x'],
     <String>['1 ~ 6', '倍速 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0'],
-    <String>['F11', '全屏'],
+    <String>['F11', '进入 / 退出全屏'],
     <String>['Ctrl+O', '添加文件夹'],
     <String>['Ctrl+R', '重新洗牌推荐'],
-    <String>['Esc', '关闭面板'],
+    <String>['Esc', '全屏时先退全屏，否则关闭面板'],
   ];
 
   @override

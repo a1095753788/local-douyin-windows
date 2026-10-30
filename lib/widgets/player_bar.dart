@@ -12,6 +12,9 @@ class PlayerBar extends StatefulWidget {
   final double volume;
   final bool muted;
 
+  /// 当前是否全屏（决定全屏按钮显示「进入」还是「退出」）
+  final bool fullscreen;
+
   final VoidCallback onPlayPause;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<double> onSpeed;
@@ -36,6 +39,7 @@ class PlayerBar extends StatefulWidget {
     required this.onToggleMute,
     required this.onPrev,
     required this.onNext,
+    this.fullscreen = false,
     this.onFullscreen,
   });
 
@@ -210,8 +214,12 @@ class _PlayerBarState extends State<PlayerBar> {
               const SizedBox(width: 8),
               if (widget.onFullscreen != null)
                 _Btn(
-                  icon: Icons.fullscreen_rounded,
-                  tooltip: '全屏  (F11)',
+                  icon: widget.fullscreen
+                      ? Icons.fullscreen_exit_rounded
+                      : Icons.fullscreen_rounded,
+                  tooltip: widget.fullscreen
+                      ? '退出全屏  (F11 / Esc)'
+                      : '全屏  (F11)',
                   size: 20,
                   onTap: widget.onFullscreen!,
                 ),
