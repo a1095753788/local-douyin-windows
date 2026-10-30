@@ -29,7 +29,15 @@ class AppConstants {
   static const int maxConsecutivePerFolder = 2; // 同文件夹连续上限
   static const int minPoolSize = 20; // 低于此值时清空会话记忆，避免池枯竭
   static const int recentlyShownLimit = 30; // 会话内短期去重队列长度
-  static const double exploitRatio = 0.7; // 前 70% 为利用池
+  // 注：原来的 exploitRatio（前 70% 为利用池）已移除。
+  // 分池方式改成「没看过的一堆 / 看过的一堆」，不再按分数切百分比。
+
+  // ── 观看档位（决定推荐优先级）──
+  /// 进度达到这个比例就算「看完了」
+  static const double watchedProgress = 0.9;
+
+  /// 进度低于这个比例算「播过但划走了」
+  static const double skippedProgress = 0.2;
 
   // ── 播放计数（修正手机版「一可见就 +1」）──
   static const int playCountMinMs = 3000; // 累计播放 3 秒
