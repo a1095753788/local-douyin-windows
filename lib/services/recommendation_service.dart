@@ -63,9 +63,14 @@ class RecommendationService {
   final Future<List<VideoItem>> Function() _load;
   final Random _random = Random();
 
-  final List<String> _recentlyShown = <String>[];
-
   /// 本次会话已经推过的 id（短期去重）
+  ///
+  /// 用 Set 而不是 List：挑选时每条候选都要查一次「推过没有」，
+  /// 2 万条候选 × 每轮都查 = 上千万次。List.contains 是线性扫描，
+  /// Set 是哈希，这一项能省掉绝大部分开销。
+  /// `{}` 是 LinkedHashSet，保持插入顺序，方便淘汰最老的。
+  final Set<String> _recentlyShown = <String>{};
+
   List<String> get recentlyShown => List.unmodifiable(_recentlyShown);
 
   void clearSessionMemory() => _recentlyShown.clear();
@@ -100,9 +105,13 @@ class RecommendationService {
 
     final affinity = _computeFolderAffinity(candidates);
 
+    // 时间戳提到循环外：原来每条候选都调一次 DateTime.now()，
+    // 2 万条就是 2 万次系统调用。
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
     final scored =
         candidates
-            .map((v) => _Scored(v, _computeScore(v, affinity), tierOf(v)))
+            .map((v) => _Scored(v, _computeScore(v, affinity, nowMs), tierOf(v)))
             .toList()
           ..sort((a, b) {
             // 第一排序键：档位。没看过的永远排在看过的前面。
@@ -160,7 +169,7 @@ class RecommendationService {
 
       _recentlyShown.add(picked.id);
       while (_recentlyShown.length > AppConstants.recentlyShownLimit) {
-        _recentlyShown.removeAt(0);
+        _recentlyShown.remove(_recentlyShown.first);
       }
     }
 
@@ -214,7 +223,7 @@ class RecommendationService {
     return WatchTier.partial;
   }
 
-  double _computeScore(VideoItem v, Map<String, double> affinity) {
+  double _computeScore(VideoItem v, Map<String, double> affinity, int nowMs) {
     var score = 0.0;
 
     // 1) 互动分
@@ -246,8 +255,7 @@ class RecommendationService {
     }
 
     // 3) 新鲜度（锚点取 min(入库时间, 文件修改时间)）
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final hours = (now - v.effectiveAddedAt) / 3600000.0;
+    final hours = (nowMs - v.effectiveAddedAt) / 3600000.0;
     if (hours <= 24) {
       score += 20.0;
     } else if (hours <= 24 * 7) {

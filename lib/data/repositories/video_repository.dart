@@ -1,5 +1,6 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../../core/constants.dart';
 import '../database.dart';
 import '../models/video_item.dart';
 
@@ -27,9 +28,12 @@ class VideoRepository {
   /// 推荐候选：SQL 侧先过滤掉不感兴趣和已收藏的
   Future<List<VideoItem>> getCandidates() async {
     final db = await _appDb.db;
+    // 必须带 LIMIT。2 万个视频时无 LIMIT 要读 2 万行 + 构造 2 万个对象（约 80ms），
+    // 而推荐流一次只取 40 条，纯属浪费。
     final rows = await db.rawQuery(
       '$_baseSelect WHERE v.isNotInterested = 0 AND v.isFavorited = 0 '
-      'ORDER BY v.addedAt DESC',
+      'ORDER BY v.addedAt DESC LIMIT ?',
+      <Object?>[AppConstants.candidateLimit],
     );
     return rows.map(VideoItem.fromMap).toList();
   }
@@ -232,6 +236,45 @@ class VideoRepository {
     );
   }
 
+  /// 批量写回缩略图路径
+  ///
+  /// 2 万条视频逐条 update 是灾难：每次一个隐式事务，加起来几分钟。
+  /// 这里一个事务写完全部，快两个数量级。
+  Future<void> updateThumbnailBatch(Map<String, String> idToPath) async {
+    if (idToPath.isEmpty) return;
+    final db = await _appDb.db;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final e in idToPath.entries) {
+        batch.update(
+          'videos',
+          <String, Object?>{'thumbnailPath': e.value},
+          where: 'id = ?',
+          whereArgs: <Object?>[e.key],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// 批量删除记录（一次事务）
+  Future<int> deleteBatch(List<String> ids) async {
+    if (ids.isEmpty) return 0;
+    final db = await _appDb.db;
+    var n = 0;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final id in ids) {
+        batch.delete('videos', where: 'id = ?', whereArgs: <Object?>[id]);
+      }
+      final results = await batch.commit();
+      for (final r in results) {
+        n += (r as int?) ?? 0;
+      }
+    });
+    return n;
+  }
+
   Future<void> updateMetadata(
     String id, {
     int? duration,
@@ -367,27 +410,28 @@ class VideoRepository {
   // ── 统计 ──
   Future<Map<String, int>> stats() async {
     final db = await _appDb.db;
-    final total = await db.rawQuery('SELECT COUNT(*) c FROM videos');
-    final liked = await db.rawQuery(
-      'SELECT COUNT(*) c FROM videos WHERE isLiked = 1',
-    );
-    final fav = await db.rawQuery(
-      'SELECT COUNT(*) c FROM videos WHERE isFavorited = 1',
-    );
-    final blocked = await db.rawQuery(
-      'SELECT COUNT(*) c FROM videos WHERE isNotInterested = 1',
-    );
-    final plays = await db.rawQuery('SELECT SUM(playCount) c FROM videos');
-    final folders = await db.rawQuery('SELECT COUNT(*) c FROM folders');
-    int v(List<Map<String, Object?>> r) =>
-        (r.isNotEmpty ? (r.first['c'] as num?)?.toInt() : 0) ?? 0;
+    // 一次扫完。原来是 6 条独立 SQL，2 万条视频要全表扫 6 遍（约 12 万行）。
+    final r = await db.rawQuery('''
+      SELECT COUNT(*) AS total,
+             SUM(isLiked = 1) AS liked,
+             SUM(isFavorited = 1) AS fav,
+             SUM(isNotInterested = 1) AS blocked,
+             SUM(playCount) AS plays
+      FROM videos
+    ''');
+    final f = await db.rawQuery('SELECT COUNT(*) AS c FROM folders');
+
+    int pick(Map<String, Object?>? row, String key) =>
+        (row?[key] as num?)?.toInt() ?? 0;
+
+    final row = r.isEmpty ? null : r.first;
     return <String, int>{
-      'videos': v(total),
-      'liked': v(liked),
-      'favorited': v(fav),
-      'blocked': v(blocked),
-      'plays': v(plays),
-      'folders': v(folders),
+      'videos': pick(row, 'total'),
+      'liked': pick(row, 'liked'),
+      'favorited': pick(row, 'fav'),
+      'blocked': pick(row, 'blocked'),
+      'plays': pick(row, 'plays'),
+      'folders': pick(f.isEmpty ? null : f.first, 'c'),
     };
   }
 }

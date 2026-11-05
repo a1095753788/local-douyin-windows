@@ -161,6 +161,31 @@ tool\build-installer.bat    :: 再打成 dist\LocalDouyin-Setup-1.0.0.exe
 
 ---
 
+## 大库性能（2 万个视频）
+
+视频数量上万以后，几个「看起来没问题」的写法会变成灾难。这一版专门处理过：
+
+| 问题 | 原来的写法 | 现在 |
+|---|---|---|
+| 推荐候选查询 | 一次读 2 万行，**83ms** | 加 `LIMIT 5000` + 索引，**9ms** |
+| 启动时清理失效记录 | 2 万次 `existsSync()` 同步 IO，界面冻住几秒 | 64 个一批异步检查，界面不卡 |
+| 缩略图写回 | 2 万次单条 `UPDATE`，几分钟 | 一次事务批量写，快两个数量级 |
+| 缩略图进度回调 | 每张图 `notifyListeners()`，每秒重建几十次 | 300ms 节流 |
+| 扫描时读文件属性 | 2 万次 `statSync()` | 异步 `stat()` |
+| 统计信息 | 6 条 SQL 全表扫 6 遍 | 合并成 1 条 |
+| 会话去重 | `List.contains` 线性查找 | `Set` 哈希查找 |
+
+推荐算法本身在 2 万条候选上只要 16ms，不是瓶颈——瓶颈全在 IO 和数据库。
+
+实测数据可以用 `test/db_perf_test.dart` 和 `test/perf_test.dart` 复现：
+
+```bat
+flutter test test/db_perf_test.dart
+flutter test test/perf_test.dart
+```
+
+---
+
 ## 数据位置
 
 ```
@@ -215,6 +240,7 @@ flutter test
 - `auto_hide_test.dart` —— 全屏控制层自动显隐 7 项（4 秒淡出 / 鼠标唤醒 / 暂停常显）
 - `error_banner_test.dart` —— 播放中不误报「这条解不开」4 项
 - `layout_test.dart` —— 1280×800、900×600、开面板等场景无布局溢出
+- `perf_test.dart` / `db_perf_test.dart` —— 2 万条规模下的性能基准（只在需要时手动跑）
 - `platform_test.dart` —— 回收站 FFI、字节格式化
 - `ffmpeg_smoke_test.dart` —— 真实调用 ffmpeg 做定位 / 探测 / 截帧体检
 
@@ -254,7 +280,7 @@ tool/
 ├── build-installer.bat    打安装包
 ├── installer.iss          Inno Setup 脚本
 └── ChineseSimplified.isl  简体中文语言包（281 条，全译）
-test/               推荐算法 / 布局 / 平台 / ffmpeg 体检，共 35 项
+test/               推荐算法 / 布局 / 平台 / ffmpeg 体检，共 40 项
 ```
 
 ## 许可

@@ -148,7 +148,7 @@ class ScanService {
 
         if (minFileSizeKb > 0) {
           try {
-            if (entity.lengthSync() < minFileSizeKb * 1024) continue;
+            if (await entity.length() < minFileSizeKb * 1024) continue;
           } catch (_) {}
         }
         found.add(entity);
@@ -182,7 +182,9 @@ class ScanService {
       int size = 0;
       int mtime = 0;
       try {
-        final stat = f.statSync();
+        // 用异步 stat。原来 statSync 在主 isolate 上跑，2 万个文件
+        // 会把界面冻住将近一秒；异步版分散到 IO 线程池，界面全程可响应。
+        final stat = await f.stat();
         size = stat.size;
         mtime = stat.modified.millisecondsSinceEpoch;
       } catch (_) {
@@ -407,12 +409,22 @@ class ScanService {
 
     AppLog.w('thumb', 'ffmpeg 成功 $ok / ${tasks.length}');
     // 把成功的路径写回库
-    for (var i = 0; i < list.length; i++) {
-      final out = tasks[i].output;
-      if (File(out).existsSync()) {
-        await _videos.updateThumbnail(list[i].id, out);
+    //
+    // 原来是逐条 File.existsSync() + 逐条 UPDATE：2 万条要 2 万次同步 IO
+    // 和 2 万次隐式事务，能卡好几分钟。改成 64 个一批并发检查 + 一次事务写回。
+    const checkBatch = 64;
+    final okMap = <String, String>{};
+    for (var i = 0; i < list.length; i += checkBatch) {
+      final end = (i + checkBatch).clamp(0, list.length);
+      final slice = tasks.sublist(i, end);
+      final exists = await Future.wait(
+        slice.map((t) => File(t.output).exists()),
+      );
+      for (var j = 0; j < slice.length; j++) {
+        if (exists[j]) okMap[list[i + j].id] = slice[j].output;
       }
     }
+    await _videos.updateThumbnailBatch(okMap);
     return ok;
   }
 

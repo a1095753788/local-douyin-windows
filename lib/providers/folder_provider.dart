@@ -301,17 +301,34 @@ class FolderProvider extends ChangeNotifier {
       for (final f in list) {
         if (!f.available) continue;
         final vids = await _videos.getByFolder(f.id);
-        var hit = 0;
-        for (final v in vids) {
-          if (File(v.path).existsSync()) continue;
-          _deleteThumb(v.thumbnailPath);
-          await _videos.delete(v.id);
-          hit++;
+        if (vids.isEmpty) continue;
+
+        // 批量并发检查文件在不在。
+        //
+        // 原来用 existsSync()：2 万个文件全在主 isolate 同步做，界面会冻住
+        // 好几秒（机械硬盘或网络盘上能到几十秒）。这里每批 64 个并发，
+        // 每个 await 都会让出事件循环，界面全程可响应。
+        const batchSize = 64;
+        final missing = <VideoItem>[];
+        for (var i = 0; i < vids.length; i += batchSize) {
+          final slice = vids.sublist(i, (i + batchSize).clamp(0, vids.length));
+          final exists = await Future.wait(
+            slice.map((v) => File(v.path).exists()),
+          );
+          for (var j = 0; j < slice.length; j++) {
+            if (!exists[j]) missing.add(slice[j]);
+          }
         }
-        if (hit > 0) {
-          await _repo.refreshVideoCount(f.id);
-          removed += hit;
+
+        if (missing.isEmpty) continue;
+
+        for (final v in missing) {
+          await _deleteThumbAsync(v.thumbnailPath);
         }
+        // 一次事务删完，不是逐条 delete
+        await _videos.deleteBatch(missing.map((v) => v.id).toList());
+        await _repo.refreshVideoCount(f.id);
+        removed += missing.length;
       }
     } catch (e) {
       AppLog.w('prune', '失败 $e');
@@ -351,6 +368,15 @@ class FolderProvider extends ChangeNotifier {
     try {
       final f = File(path);
       if (f.existsSync()) f.deleteSync();
+    } catch (_) {}
+  }
+
+  /// 异步版，批量场景用（避免成千上万次同步 IO 卡住界面）
+  Future<void> _deleteThumbAsync(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      final f = File(path);
+      if (await f.exists()) await f.delete();
     } catch (_) {}
   }
 

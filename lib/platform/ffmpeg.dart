@@ -272,6 +272,7 @@ class FfmpegService {
     var done = 0;
     var ok = 0;
     var cursor = 0;
+    var lastReport = 0;
 
     Future<void> worker() async {
       while (true) {
@@ -286,7 +287,14 @@ class FfmpegService {
         );
         if (success) ok++;
         done++;
-        onProgress?.call(done, tasks.length);
+        // 进度回调要节流。2 万张图如果每张都 notifyListeners，
+        // 整个界面每秒重建几十次，本来不卡的也卡了。
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (done == tasks.length ||
+            now - lastReport >= AppConstants.thumbProgressIntervalMs) {
+          lastReport = now;
+          onProgress?.call(done, tasks.length);
+        }
       }
     }
 

@@ -39,6 +39,19 @@ class AppConstants {
   /// 进度低于这个比例算「播过但划走了」
   static const double skippedProgress = 0.2;
 
+  // ── 大库性能 ──
+  /// 推荐候选池上限
+  ///
+  /// 库里有 2 万个视频时，一次把 2 万行读出来 + 构造 2 万个对象要 80ms，
+  /// 而推荐流一次只要 40 条。取 5000 条（约 20ms）完全够用：
+  /// 翻 100 页才用掉 4000 条，正常观看根本刷不完。
+  static const int candidateLimit = 5000;
+
+  /// 缩略图生成时，进度回调的最小间隔
+  ///
+  /// 每张图都 notifyListeners 会让整个界面每秒重建 20 次。
+  static const int thumbProgressIntervalMs = 300;
+
   // ── 播放计数（修正手机版「一可见就 +1」）──
   static const int playCountMinMs = 3000; // 累计播放 3 秒
   static const double playCountMinProgress = 0.10; // 或进度 10%

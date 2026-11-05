@@ -43,7 +43,30 @@ class AppDatabase {
         },
       ),
     );
+    // 老库（schema 已经是 v6 的）不会走 _onUpgrade，这里无条件补一次索引。
+    // CREATE INDEX IF NOT EXISTS 在索引已存在时是空操作，开销可以忽略。
+    await _ensureIndexes(_db!);
     return _db!;
+  }
+
+  /// 补齐可能缺失的索引
+  ///
+  /// 为什么不在 _onUpgrade 里做：那样必须提 schema 版本号，
+  /// 而版本号一变就要写一堆迁移分支。索引是纯粹的加速结构，
+  /// 每次启动检查一下最省事。
+  Future<void> _ensureIndexes(Database db) async {
+    const indexes = <String>[
+      'CREATE INDEX IF NOT EXISTS idx_videos_addedAt ON videos(addedAt DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_videos_flags '
+          'ON videos(isNotInterested, isFavorited, addedAt DESC)',
+    ];
+    for (final sql in indexes) {
+      try {
+        await db.execute(sql);
+      } catch (_) {
+        // 建索引失败不影响使用，只是慢一点
+      }
+    }
   }
 
   Future<void> close() async {
@@ -103,6 +126,12 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_videos_path ON videos(path)');
     await db.execute(
       'CREATE INDEX idx_videos_fingerprint ON videos(fileSize, fileMtime)',
+    );
+    // 推荐流按 addedAt DESC 取候选，2 万条没这个索引要全表排序
+    await db.execute('CREATE INDEX idx_videos_addedAt ON videos(addedAt DESC)');
+    // 推荐候选的过滤条件
+    await db.execute(
+      'CREATE INDEX idx_videos_flags ON videos(isNotInterested, isFavorited, addedAt DESC)',
     );
 
     await _createCommentsTable(db);
