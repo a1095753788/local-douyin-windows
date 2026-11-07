@@ -566,11 +566,11 @@ class _AppShellState extends State<AppShell> with WindowListener {
         return KeyEventResult.handled;
 
       case LogicalKeyboardKey.bracketLeft:
-        player.nudgeSpeed(-AppConstants.speedStep);
+        player.stepSpeed(-1);
         return KeyEventResult.handled;
 
       case LogicalKeyboardKey.bracketRight:
-        player.nudgeSpeed(AppConstants.speedStep);
+        player.stepSpeed(1);
         return KeyEventResult.handled;
 
       case LogicalKeyboardKey.digit1:
@@ -579,6 +579,9 @@ class _AppShellState extends State<AppShell> with WindowListener {
       case LogicalKeyboardKey.digit4:
       case LogicalKeyboardKey.digit5:
       case LogicalKeyboardKey.digit6:
+      case LogicalKeyboardKey.digit7:
+      case LogicalKeyboardKey.digit8:
+      case LogicalKeyboardKey.digit9:
         final presets = AppConstants.speedPresets;
         final idx = <LogicalKeyboardKey>[
           LogicalKeyboardKey.digit1,
@@ -587,6 +590,9 @@ class _AppShellState extends State<AppShell> with WindowListener {
           LogicalKeyboardKey.digit4,
           LogicalKeyboardKey.digit5,
           LogicalKeyboardKey.digit6,
+          LogicalKeyboardKey.digit7,
+          LogicalKeyboardKey.digit8,
+          LogicalKeyboardKey.digit9,
         ].indexOf(key);
         if (idx >= 0 && idx < presets.length) {
           player.setSpeed(presets[idx]);

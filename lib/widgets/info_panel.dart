@@ -127,7 +127,7 @@ class InfoPanel extends StatelessWidget {
                           '播放位置',
                           '${_fmtDuration(position)} / ${_fmtDuration(duration)}',
                         ),
-                        _Row('倍速', '${speed.toStringAsFixed(2)}x'),
+                        _Row('倍速', AppConstants.formatSpeed(speed)),
                       ]),
 
                       _Section('观看统计', <_Row>[

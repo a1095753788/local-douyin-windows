@@ -69,6 +69,11 @@ class AppConstants {
   static const int thumbPositionMinMs = 500;
 
   // ── 倍速 ──
+  // 2 倍以上靠 libmpv 的 scaletempo2 做「变速不变调」：
+  //   · 音频仍可听清，但 4~5 倍时人声已经很挤，属于这类算法的正常表现；
+  //   · CPU 占用随倍速线性上升，硬解（d3d11va）通常无压力；
+  //   · 软解老编码（mpeg4 / mpeg2video / rv40）在 4 倍以上可能掉帧，
+  //     想稳住就切到「自动」让它能硬解，或降低倍速。
   static const List<double> speedPresets = <double>[
     0.5,
     0.75,
@@ -76,10 +81,46 @@ class AppConstants {
     1.25,
     1.5,
     2.0,
+    3.0,
+    4.0,
+    5.0,
   ];
   static const double speedMin = 0.5;
-  static const double speedMax = 2.0;
-  static const double speedStep = 0.1;
+  static const double speedMax = 5.0;
+
+  /// 找到最接近 [speed] 的预设下标（设置页滑块按「档位」而不是「数值」走，
+  /// 因为预设的间距不均匀，线性滑块对不上）。
+  static int speedIndex(double speed) {
+    var best = 0;
+    for (var i = 1; i < speedPresets.length; i++) {
+      if ((speedPresets[i] - speed).abs() < (speedPresets[best] - speed).abs()) {
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /// 从 [speed] 跳到上一档（[dir] < 0）或下一档（[dir] > 0）预设。
+  /// 当前值不在预设上（比如老版本存下来的 1.1）也能正确跳到相邻档。
+  static double nextSpeed(double speed, int dir) {
+    if (dir > 0) {
+      for (final s in speedPresets) {
+        if (s > speed + 1e-6) return s;
+      }
+      return speedMax;
+    }
+    for (final s in speedPresets.reversed) {
+      if (s < speed - 1e-6) return s;
+    }
+    return speedMin;
+  }
+
+  /// 倍速显示：整数档显示 1.0x / 3.0x，小数档去掉多余的 0（0.75x、1.1x）。
+  static String formatSpeed(double s) {
+    if (s == s.roundToDouble()) return '${s.toStringAsFixed(1)}x';
+    final t = s.toStringAsFixed(2);
+    return '${t.endsWith('0') ? t.substring(0, t.length - 1) : t}x';
+  }
 
   // ── 扫描 ──
   static const int scanProgressEvery = 200; // 每扫多少个文件回传一次进度

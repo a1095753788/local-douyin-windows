@@ -101,7 +101,8 @@ class PlayerProvider extends ChangeNotifier {
   }) async {
     _mode = mode;
     _completion = completion;
-    _speed = speed;
+    // 老版本存下来的倍速可能超出当前档位范围，先夹一下再用
+    _speed = speed.clamp(AppConstants.speedMin, AppConstants.speedMax);
     _volume = volume;
     await _createPlayer();
   }
@@ -467,12 +468,17 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> setSpeed(double s) async {
-    _speed = s.clamp(AppConstants.speedMin, AppConstants.speedMax);
+    final next = s.clamp(AppConstants.speedMin, AppConstants.speedMax);
+    if ((next - _speed).abs() < 1e-6) return;
+    _speed = next;
     await _player?.setRate(_speed);
     notifyListeners();
   }
 
-  Future<void> nudgeSpeed(double delta) => setSpeed(_speed + delta);
+  /// 切到上一档 / 下一档预设倍速（[dir] > 0 加速）。
+  /// 用「跳档」而不是「±0.1」：档位跨度到了 5 倍，一格一格加要按几十次。
+  Future<void> stepSpeed(int dir) =>
+      setSpeed(AppConstants.nextSpeed(_speed, dir));
 
   Future<void> seek(Duration d) async {
     await _player?.seek(d);

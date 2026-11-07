@@ -50,6 +50,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final stats = videos.stats;
 
+    // 滑块按「第几档」走（预设间距不均匀，线性数值对不上）。
+    // 老版本可能存着 1.1x 这种非档位值，这里吸附到最近的档位显示，
+    // 避免滑块停在 1.0 而右边写着 1.1x。
+    final speedIdx = AppConstants.speedIndex(settings.defaultSpeed);
+    final speedNow = AppConstants.speedPresets[speedIdx];
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 18, 24, 40),
       children: <Widget>[
@@ -106,14 +112,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             _SliderRow(
               label: '默认倍速',
-              value: settings.defaultSpeed,
-              min: AppConstants.speedMin,
-              max: AppConstants.speedMax,
-              divisions: 15,
-              text: '${settings.defaultSpeed.toStringAsFixed(2)}x',
+              value: speedIdx.toDouble(),
+              min: 0,
+              max: (AppConstants.speedPresets.length - 1).toDouble(),
+              divisions: AppConstants.speedPresets.length - 1,
+              text: AppConstants.formatSpeed(speedNow),
               onChanged: (v) {
-                settings.setDefaultSpeed(v);
-                player.setSpeed(v);
+                final s = AppConstants.speedPresets[v.round()];
+                settings.setDefaultSpeed(s);
+                player.setSpeed(s);
               },
             ),
             _SwitchRow(
@@ -721,8 +728,8 @@ class _ShortcutTable extends StatelessWidget {
     <String>['D', '弹幕开关'],
     <String>['Tab', '视频信息面板'],
     <String>['M', '静音'],
-    <String>['[ / ]', '减速 / 加速 0.1x'],
-    <String>['1 ~ 6', '倍速 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0'],
+    <String>['[ / ]', '上一档 / 下一档倍速'],
+    <String>['1 ~ 9', '倍速 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0 / 3.0 / 4.0 / 5.0'],
     <String>['F11', '进入 / 退出全屏'],
     <String>['Ctrl+O', '添加文件夹'],
     <String>['Ctrl+R', '重新洗牌推荐'],

@@ -306,7 +306,10 @@ class _SpeedButton extends StatelessWidget {
             height: 34,
             child: Row(
               children: <Widget>[
-                SizedBox(width: 44, child: Text('${s}x')),
+                SizedBox(
+                  width: 44,
+                  child: Text(AppConstants.formatSpeed(s)),
+                ),
                 if ((speed - s).abs() < 0.001)
                   const Icon(Icons.check, size: 14, color: AppTheme.primary),
               ],
@@ -320,7 +323,7 @@ class _SpeedButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(
-          '${speed.toStringAsFixed(speed == speed.roundToDouble() ? 1 : 2)}x',
+          AppConstants.formatSpeed(speed),
           style: const TextStyle(
             color: Colors.white,
             fontSize: 12,
