@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../core/app_log.dart';
 import '../core/constants.dart';
+import '../core/paths.dart';
 import '../core/theme.dart';
 import '../data/models/video_item.dart';
 import '../providers/comment_provider.dart';
@@ -19,6 +20,7 @@ import '../providers/video_provider.dart';
 import '../widgets/app_context_menu.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/scan_banner.dart';
+import '../widgets/title_bar.dart';
 import 'discover_screen.dart';
 import 'folder_screen.dart';
 import 'home_screen.dart';
@@ -51,6 +53,10 @@ class _AppShellState extends State<AppShell> with WindowListener {
   String? _bootError;
 
   final FocusNode _focus = FocusNode(debugLabel: 'app-shell');
+
+  /// 标题栏的放大镜 / 漏斗要能直接操作发现页，用 key 拿它的 State
+  final GlobalKey<DiscoverScreenState> _discoverKey =
+      GlobalKey<DiscoverScreenState>();
 
   @override
   void initState() {
@@ -428,6 +434,166 @@ class _AppShellState extends State<AppShell> with WindowListener {
     if (mounted) setState(() {});
   }
 
+  // ────────────────────── 标题栏 ──────────────────────
+
+  void _onTitleAction(TitleAction a) {
+    switch (a) {
+      case TitleAction.toggleSidebar:
+        setState(() => _collapsed = !_collapsed);
+
+      case TitleAction.search:
+        _gotoDiscover(focusSearch: true);
+
+      case TitleAction.filterAll:
+        _gotoDiscover(filter: 'all');
+      case TitleAction.filterUnplayed:
+        _gotoDiscover(filter: 'unplayed');
+      case TitleAction.filterPlayed:
+        _gotoDiscover(filter: 'played');
+      case TitleAction.filterLiked:
+        _gotoDiscover(filter: 'liked');
+      case TitleAction.filterFavorited:
+        _gotoDiscover(filter: 'favorited');
+
+      case TitleAction.addFolder:
+        _addFolder();
+      case TitleAction.rescan:
+        _rescan();
+      case TitleAction.reshuffle:
+        _reshuffle();
+
+      case TitleAction.openSettings:
+        _gotoPage(3);
+
+      case TitleAction.toggleFullscreen:
+        _toggleFullScreen();
+
+      case TitleAction.minimize:
+        windowManager.minimize();
+
+      case TitleAction.toggleMaximize:
+        _toggleMaximizeWindow();
+
+      case TitleAction.toggleAlwaysOnTop:
+        // 开关状态只有标题栏自己知道，它在内部处理完就不再往上抛
+        break;
+
+      case TitleAction.shortcuts:
+        _gotoPage(3);
+        _toast('快捷键表在「我的」页最下面');
+
+      case TitleAction.openDataDir:
+        _openPath(AppPaths.dataDir.path);
+
+      case TitleAction.openLog:
+        final p = AppLog.logPath;
+        if (p.isEmpty) {
+          _toast('这次运行没有写日志');
+        } else {
+          _openPath(p);
+        }
+
+      case TitleAction.openRepo:
+        _openExternal(AppConstants.repoUrl);
+
+      case TitleAction.about:
+        _showAbout();
+
+      case TitleAction.licenses:
+        showLicensePage(
+          context: context,
+          applicationName: AppConstants.appName,
+          applicationVersion: AppConstants.appVersion,
+          applicationLegalese: '开源在 GitHub，欢迎提 issue。',
+        );
+    }
+  }
+
+  void _gotoPage(int i) {
+    if (_page == i) return;
+    setState(() => _page = i);
+    final settings = context.read<SettingsProvider>();
+    if (settings.pauseOnPageChange) context.read<PlayerProvider>().pause();
+    _focus.requestFocus();
+  }
+
+  /// 标题栏的放大镜 / 漏斗：切到发现页，再让它聚焦搜索框或直接切筛选
+  Future<void> _gotoDiscover({String? filter, bool focusSearch = false}) async {
+    if (_page != 2) {
+      setState(() => _page = 2);
+      final settings = context.read<SettingsProvider>();
+      if (settings.pauseOnPageChange) context.read<PlayerProvider>().pause();
+    }
+    if (filter != null) _discoverKey.currentState?.applyFilter(filter);
+    if (focusSearch) {
+      // IndexedStack 切页那一帧还没布局完，等下一帧再抢焦点
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _discoverKey.currentState?.focusSearch();
+      });
+    }
+  }
+
+  Future<void> _toggleMaximizeWindow() async {
+    if (await windowManager.isMaximized()) {
+      await windowManager.unmaximize();
+    } else {
+      await windowManager.maximize();
+    }
+  }
+
+  Future<void> _openPath(String path) async {
+    if (path.isEmpty) return;
+    try {
+      await Process.run('explorer.exe', <String>[path]);
+    } catch (_) {}
+  }
+
+  Future<void> _showAbout() async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(AppConstants.appName),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '版本 ${AppConstants.appVersion}',
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '把本地文件夹当推荐流的桌面播放器。\n'
+              '不转码、不上传、不联网，视频永远只在你这台机器上。',
+              style: TextStyle(fontSize: 13, height: 1.6),
+            ),
+            const SizedBox(height: 12),
+            const SelectableText(
+              AppConstants.repoUrl,
+              style: TextStyle(color: AppTheme.textTertiary, fontSize: 11.5),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _openExternal(AppConstants.repoUrl);
+            },
+            child: const Text('打开项目主页'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('好'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ────────────────────── 键盘 ──────────────────────
 
   bool _isTyping() {
@@ -636,25 +802,27 @@ class _AppShellState extends State<AppShell> with WindowListener {
     final folders = context.watch<FolderProvider>();
 
     if (_booting) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: AppTheme.bg,
-        body: LoadingState(text: '正在准备…'),
+        body: _frame(const LoadingState(text: '正在准备…')),
       );
     }
 
     if (_bootError != null) {
       return Scaffold(
         backgroundColor: AppTheme.bg,
-        body: EmptyState(
-          icon: Icons.error_outline,
-          title: '启动失败',
-          subtitle: _bootError,
-          action: FilledButton(
-            onPressed: () => setState(() {
-              _bootError = null;
-              _booting = true;
-            }),
-            child: const Text('重试'),
+        body: _frame(
+          EmptyState(
+            icon: Icons.error_outline,
+            title: '启动失败',
+            subtitle: _bootError,
+            action: FilledButton(
+              onPressed: () => setState(() {
+                _bootError = null;
+                _booting = true;
+              }),
+              child: const Text('重试'),
+            ),
           ),
         ),
       );
@@ -662,11 +830,8 @@ class _AppShellState extends State<AppShell> with WindowListener {
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
-      body: Focus(
-        focusNode: _focus,
-        autofocus: true,
-        onKeyEvent: _onKey,
-        child: Row(
+      body: _frame(
+        Row(
           children: <Widget>[
             // 全屏时侧边栏整个不要，画面才能铺满
             if (!_fullScreen) ...<Widget>[
@@ -702,13 +867,31 @@ class _AppShellState extends State<AppShell> with WindowListener {
     );
   }
 
+  /// 整个窗口的外框：自绘标题栏 + 内容
+  ///
+  /// 启动中 / 启动失败也要有标题栏，否则窗口卡在那一屏时既拖不动也关不掉。
+  Widget _frame(Widget body) {
+    return Focus(
+      focusNode: _focus,
+      autofocus: true,
+      onKeyEvent: _onKey,
+      child: Column(
+        children: <Widget>[
+          if (!_fullScreen)
+            AppTitleBar(collapsed: _collapsed, onAction: _onTitleAction),
+          Expanded(child: body),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPage() {
     return IndexedStack(
       index: _page,
       children: <Widget>[
         _buildHome(),
         FolderScreen(onAddFolder: _addFolder, onPlayVideo: _playSpecific),
-        DiscoverScreen(onPlayVideo: _playSpecific),
+        DiscoverScreen(key: _discoverKey, onPlayVideo: _playSpecific),
         ProfileScreen(
           onLibraryReset: () async {
             await context.read<VideoProvider>().loadFeed();

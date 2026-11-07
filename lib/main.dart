@@ -47,7 +47,10 @@ Future<void> main() async {
     center: true,
     backgroundColor: AppTheme.bg,
     title: AppConstants.appName,
-    titleBarStyle: TitleBarStyle.normal,
+    // 系统标题栏的文字颜色跟着 Windows 的深浅色走，应用是深色时会出现
+    // 「黑字白底块」糊在深色条上，看不清也没法从 Flutter 里改。
+    // 整条自己画，见 lib/widgets/title_bar.dart
+    titleBarStyle: TitleBarStyle.hidden,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();

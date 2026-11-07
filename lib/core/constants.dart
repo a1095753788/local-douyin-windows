@@ -7,6 +7,9 @@ class AppConstants {
 
   static const String appName = '本地抖音';
   static const String appNameEn = 'LocalDouyin';
+  static const String appVersion = '1.0.0';
+  static const String repoUrl =
+      'https://github.com/a1095753788/local-douyin-windows';
   static const String dbName = 'local_douyin.db';
   static const int dbVersion = 6;
 
@@ -128,6 +131,7 @@ class AppConstants {
   static const int watchDebounceMs = 5000; // 文件监视防抖
 
   // ── 布局 ──
+  static const double titleBarHeight = 38; // 自绘标题栏
   static const double windowMinWidth = 900;
   static const double windowMinHeight = 600;
   static const double windowDefaultWidth = 1280;

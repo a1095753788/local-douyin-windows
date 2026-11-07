@@ -5,6 +5,12 @@ class AppTheme {
 
   static const Color primary = Color(0xFFFE2C55); // 抖音红
   static const Color bg = Color(0xFF0E0E10);
+  /// 自绘标题栏的底色：比正文底色略亮一档，让窗口边界看得出来
+  static const Color titleBar = Color(0xFF16161A);
+  /// 标题栏悬停底色（图标按钮 / 菜单）
+  static const Color titleHover = Color(0x14FFFFFF);
+  /// 关闭按钮悬停（Windows 原生也是这个红）
+  static const Color closeHover = Color(0xFFC42B1C);
   static const Color surface = Color(0xFF1A1A1E);
   static const Color surfaceHigh = Color(0xFF232328);
   static const Color border = Color(0xFF2A2A30);

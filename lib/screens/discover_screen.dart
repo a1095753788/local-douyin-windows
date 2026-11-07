@@ -19,11 +19,12 @@ class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key, required this.onPlayVideo});
 
   @override
-  State<DiscoverScreen> createState() => _DiscoverScreenState();
+  DiscoverScreenState createState() => DiscoverScreenState();
 }
 
-class _DiscoverScreenState extends State<DiscoverScreen> {
+class DiscoverScreenState extends State<DiscoverScreen> {
   final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode(debugLabel: 'discover-search');
 
   String _keyword = '';
   String? _folderId;
@@ -31,6 +32,24 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   List<VideoItem> _results = <VideoItem>[];
   bool _loading = false;
+
+  /// 标题栏的放大镜按钮用：切到这一页后把光标放进搜索框
+  void focusSearch() {
+    if (!mounted) return;
+    _searchFocus.requestFocus();
+    _ctrl.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _ctrl.text.length,
+    );
+  }
+
+  /// 标题栏的漏斗按钮用：直接把筛选条件切过去
+  void applyFilter(String filter) {
+    if (!mounted || _filter == filter) return;
+    setState(() => _filter = filter);
+    // ignore: discarded_futures
+    _run();
+  }
 
   @override
   void initState() {
@@ -41,6 +60,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   void dispose() {
     _ctrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -93,6 +113,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                   height: 36,
                   child: TextField(
                     controller: _ctrl,
+                    focusNode: _searchFocus,
                     onChanged: (v) {
                       _keyword = v;
                       _run();
