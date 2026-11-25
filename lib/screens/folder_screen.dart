@@ -495,19 +495,31 @@ class _FolderScreenState extends State<FolderScreen> {
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop('file'),
             style: FilledButton.styleFrom(backgroundColor: AppTheme.danger),
-            child: const Text('移到回收站'),
+            child: Text(v.isNetwork ? '删除服务器文件' : '移到回收站'),
           ),
         ],
       ),
     );
     if (choice == null) return;
-    await folders.deleteVideo(
-      v,
-      deleteFile: choice == 'file',
-      toRecycleBin: true,
-    );
-    await _reloadVideos();
-    if (mounted) context.read<VideoProvider>().onLibraryChanged();
+    try {
+      await folders.deleteVideo(
+        v,
+        deleteFile: choice == 'file',
+        toRecycleBin: true,
+      );
+      await _reloadVideos();
+      if (mounted) context.read<VideoProvider>().onLibraryChanged();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '删除失败：${e.toString().replaceFirst(RegExp(r'^[A-Za-z]+Exception: '), '')}',
+            ),
+          ),
+        );
+      }
+    }
   }
 }
 

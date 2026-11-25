@@ -364,14 +364,19 @@ class FolderProvider extends ChangeNotifier {
     required bool deleteFile,
     bool toRecycleBin = true,
   }) async {
-    // 网络视频只删记录，不碰文件系统
-    if (deleteFile && !isNetworkVideoPath(v.path)) {
-      final f = File(v.path);
-      if (f.existsSync()) {
-        if (toRecycleBin) {
-          RecycleBin.moveToTrash(<String>[v.path]);
-        } else {
-          RecycleBin.deletePermanently(<String>[v.path]);
+    if (deleteFile) {
+      if (isNetworkVideoPath(v.path)) {
+        // 网络视频：让服务器把它移入服务端回收站。
+        // 失败会抛异常，本地记录保留，避免「记录没了、文件还在」。
+        await _scan.deleteNetworkFile(v.path);
+      } else {
+        final f = File(v.path);
+        if (f.existsSync()) {
+          if (toRecycleBin) {
+            RecycleBin.moveToTrash(<String>[v.path]);
+          } else {
+            RecycleBin.deletePermanently(<String>[v.path]);
+          }
         }
       }
     }

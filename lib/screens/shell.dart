@@ -324,15 +324,23 @@ class _AppShellState extends State<AppShell> with WindowListener {
       case VideoMenuAction.deleteToRecycleBin:
         final ok = await confirmDialog(
           context,
-          title: '移到回收站？',
-          message: '文件会进回收站，可以从回收站还原。\n${v.path}',
-          confirmText: '移到回收站',
+          title: v.isNetwork ? '删除服务器文件？' : '移到回收站？',
+          message: v.isNetwork
+              ? '会从服务器上删除这个文件，并移入服务器的回收站。\n${v.name}'
+              : '文件会进回收站，可以从回收站还原。\n${v.path}',
+          confirmText: v.isNetwork ? '删除' : '移到回收站',
           danger: true,
         );
         if (!ok) return;
-        await folders.deleteVideo(v, deleteFile: true, toRecycleBin: true);
-        videos.removeFromFeed(v.id);
-        await _playCurrent();
+        try {
+          await folders.deleteVideo(v, deleteFile: true, toRecycleBin: true);
+          videos.removeFromFeed(v.id);
+          await _playCurrent();
+        } catch (e) {
+          _toast(
+            '删除失败：${e.toString().replaceFirst(RegExp(r'^[A-Za-z]+Exception: '), '')}',
+          );
+        }
         break;
     }
   }

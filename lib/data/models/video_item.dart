@@ -3,6 +3,11 @@ import 'package:path/path.dart' as p;
 class VideoItem {
   final String id;
   final String path;
+
+  /// path 是 http/https 地址，说明这条来自网络源，磁盘上没有对应文件。
+  bool get isNetwork =>
+      path.startsWith('http://') || path.startsWith('https://');
+
   final String name;
   final String folderId;
 

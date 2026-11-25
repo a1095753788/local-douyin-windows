@@ -81,7 +81,7 @@ Future<VideoMenuAction?> showVideoContextMenu({
       _item(
         VideoMenuAction.deleteToRecycleBin,
         Icons.delete_outline,
-        '移到回收站',
+        video.isNetwork ? '删除服务器文件' : '移到回收站',
         danger: true,
       ),
     ],
