@@ -148,6 +148,17 @@ class _FolderScreenState extends State<FolderScreen> {
                 ),
               ),
               const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: folders.scanning ? null : _addNetworkSource,
+                icon: const Icon(Icons.cloud_outlined, size: 15),
+                label: const Text('添加网络源'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.textSecondary,
+                  side: const BorderSide(color: AppTheme.border),
+                  textStyle: const TextStyle(fontSize: 12.5),
+                ),
+              ),
+              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: folders.scanning ? null : widget.onAddFolder,
                 icon: const Icon(Icons.add, size: 16),
@@ -327,6 +338,77 @@ class _FolderScreenState extends State<FolderScreen> {
         ],
       ),
     );
+  }
+
+  /// 添加网络视频源：输入服务器地址，由 provider 拉取清单入库。
+  Future<void> _addNetworkSource() async {
+    final ctrl = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加网络视频源', style: TextStyle(fontSize: 15)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              '输入服务器地址，App 会读取 /api/videos.json，把视频清单加入库，'
+              '之后像本地视频一样直接播放。',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12.5,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: 'http://192.168.31.41:8765',
+              ),
+              onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (url == null || url.isEmpty || !mounted) return;
+
+    try {
+      final folder = await context.read<FolderProvider>().addNetworkSource(url);
+      if (!mounted) return;
+      await _select(folder.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('网络视频源已添加'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst(RegExp(r'^[A-Za-z]+Exception: '), ''),
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   Future<void> _rename(FolderItem f, FolderProvider folders) async {

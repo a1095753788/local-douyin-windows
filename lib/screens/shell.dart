@@ -394,6 +394,66 @@ class _AppShellState extends State<AppShell> with WindowListener {
     }
   }
 
+  /// 添加网络视频源：弹出地址输入框，拉清单入库后刷新推荐流。
+  Future<void> _addNetworkSource() async {
+    final ctrl = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加网络视频源', style: TextStyle(fontSize: 15)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              '输入服务器地址，App 会读取 /api/videos.json，把视频清单加入库，'
+              '之后像本地视频一样直接播放。',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12.5,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: 'http://192.168.31.41:8765',
+              ),
+              onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (url == null || url.isEmpty || !mounted) return;
+
+    final folders = context.read<FolderProvider>();
+    final videos = context.read<VideoProvider>();
+    try {
+      await folders.addNetworkSource(url);
+      await videos.onLibraryChanged();
+      await videos.loadFeed();
+      await _playCurrent();
+      if (mounted) _toast('网络视频源已添加');
+    } catch (e) {
+      _toast(e.toString().replaceFirst(RegExp(r'^[A-Za-z]+Exception: '), ''));
+    }
+  }
+
   Future<void> _rescan() async {
     final folders = context.read<FolderProvider>();
     final settings = context.read<SettingsProvider>();
@@ -613,6 +673,10 @@ class _AppShellState extends State<AppShell> with WindowListener {
     if (ctrl) {
       if (key == LogicalKeyboardKey.keyO) {
         _addFolder();
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.keyN) {
+        _addNetworkSource();
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.keyR) {

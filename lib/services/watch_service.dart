@@ -5,6 +5,7 @@ import 'package:watcher/watcher.dart';
 
 import '../core/constants.dart';
 import '../data/models/folder_item.dart';
+import 'scan_service.dart';
 
 /// 文件夹监视
 ///
@@ -26,6 +27,8 @@ class WatchService {
   /// 开始监视一个文件夹
   void watch(FolderItem folder) {
     if (_subs.containsKey(folder.id)) return;
+    // 网络源不是本地目录，靠服务端清单刷新，不建 watcher
+    if (isNetworkVideoPath(folder.path) || folder.id.startsWith('net|')) return;
     if (!Directory(folder.path).existsSync()) return;
 
     try {

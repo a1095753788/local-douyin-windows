@@ -62,6 +62,11 @@ class FolderProvider extends ChangeNotifier {
       var changed = false;
       final fixed = <FolderItem>[];
       for (final f in _folders) {
+        // 网络源的 path 是 http URL，不是本地目录，始终视为可用
+        if (isNetworkVideoPath(f.path) || f.id.startsWith('net|')) {
+          fixed.add(f.copyWith(available: true));
+          continue;
+        }
         final ok = Directory(f.path).existsSync();
         if (ok != f.available) {
           changed = true;
@@ -103,6 +108,15 @@ class FolderProvider extends ChangeNotifier {
     return folder;
   }
 
+  /// 添加网络视频源并刷新文件夹/视频列表。
+  /// 入库由 ScanService 完成，这里负责通知 UI 与推荐流。
+  Future<FolderItem> addNetworkSource(String url) async {
+    final folder = await _scan.addNetworkSource(url);
+    await load(syncWatchers: false);
+    onLibraryChanged?.call();
+    return folder;
+  }
+
   Future<void> removeFolder(
     String folderId, {
     bool deleteFiles = false,
@@ -113,6 +127,7 @@ class FolderProvider extends ChangeNotifier {
     if (deleteFiles) {
       final list = await _videos.getByFolder(folderId);
       final paths = list
+          .where((v) => !isNetworkVideoPath(v.path))
           .map((v) => v.path)
           .where((e) => File(e).existsSync())
           .toList();
@@ -300,7 +315,10 @@ class FolderProvider extends ChangeNotifier {
       final list = await _repo.getAll();
       for (final f in list) {
         if (!f.available) continue;
-        final vids = await _videos.getByFolder(f.id);
+        // 网络视频没有本地文件，不能被当成「文件丢失」清掉
+        final vids = (await _videos.getByFolder(f.id))
+            .where((v) => !isNetworkVideoPath(v.path))
+            .toList();
         if (vids.isEmpty) continue;
 
         // 批量并发检查文件在不在。
@@ -346,7 +364,8 @@ class FolderProvider extends ChangeNotifier {
     required bool deleteFile,
     bool toRecycleBin = true,
   }) async {
-    if (deleteFile) {
+    // 网络视频只删记录，不碰文件系统
+    if (deleteFile && !isNetworkVideoPath(v.path)) {
       final f = File(v.path);
       if (f.existsSync()) {
         if (toRecycleBin) {

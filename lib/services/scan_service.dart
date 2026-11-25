@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -11,6 +13,125 @@ import '../data/models/video_item.dart';
 import '../data/repositories/folder_repository.dart';
 import '../data/repositories/video_repository.dart';
 import '../platform/ffmpeg.dart';
+
+/// 判断一个视频路径是不是网络视频源。
+///
+/// 网络视频的 path 是完整 http/https URL，由 libmpv 直接网络播放，
+/// 不走任何本地文件检查（existsSync / ffmpeg 探测 / 回收站 / 缩略图落盘）。
+bool isNetworkVideoPath(String path) =>
+    path.startsWith('http://') || path.startsWith('https://');
+
+/// 规范化用户填写的服务器地址：去首尾空白、去尾部斜杠、校验协议。
+/// 抛出的 FormatException.message 可以直接显示给用户。
+String normalizeNetworkServer(String input) {
+  var s = input.trim();
+  while (s.endsWith('/')) {
+    s = s.substring(0, s.length - 1);
+  }
+  final uri = Uri.tryParse(s);
+  if (uri == null ||
+      (uri.scheme != 'http' && uri.scheme != 'https') ||
+      uri.host.isEmpty) {
+    throw const FormatException(
+      '服务器地址不正确，请填 http:// 或 https:// 开头的地址，例如 http://192.168.31.41:8765',
+    );
+  }
+  return s;
+}
+
+/// 服务端 /api/videos.json 里一条视频解析后的纯数据。
+class NetworkVideoEntry {
+  final String url;
+  final String name;
+  final int size;
+  final String folder;
+
+  /// 秒级 Unix 时间戳
+  final int mtime;
+
+  const NetworkVideoEntry({
+    required this.url,
+    required this.name,
+    required this.size,
+    required this.folder,
+    required this.mtime,
+  });
+}
+
+/// 视频清单的解析结果。[server] 来自 JSON 顶层字段，为空时调用方用请求地址兜底。
+class NetworkVideoManifest {
+  final String server;
+  final List<NetworkVideoEntry> videos;
+
+  const NetworkVideoManifest({required this.server, required this.videos});
+}
+
+/// 解析 GET /api/videos.json 的响应体。
+/// 格式错误抛 FormatException，message 为中文。
+NetworkVideoManifest parseNetworkVideoManifest(String body) {
+  Object? decoded;
+  try {
+    decoded = jsonDecode(body);
+  } catch (_) {
+    throw const FormatException('服务器返回的不是合法 JSON');
+  }
+  if (decoded is! Map<String, dynamic>) {
+    throw const FormatException('视频清单格式错误：顶层必须是 JSON 对象');
+  }
+  final rawVideos = decoded['videos'];
+  if (rawVideos is! List) {
+    throw const FormatException('视频清单格式错误：缺少 videos 数组');
+  }
+
+  final videos = <NetworkVideoEntry>[];
+  for (final item in rawVideos) {
+    if (item is! Map<String, dynamic>) continue;
+    final rawUrl = item['url'];
+    if (rawUrl is! String || rawUrl.trim().isEmpty) {
+      throw const FormatException('视频清单格式错误：某条视频缺少 url');
+    }
+    final url = rawUrl.trim();
+
+    var name = item['name'] is String ? (item['name'] as String).trim() : '';
+    if (name.isEmpty) {
+      final segments = Uri.tryParse(url)?.pathSegments ?? const <String>[];
+      name = segments.isEmpty ? url : segments.last;
+    }
+
+    final rawFolder = item['folder'];
+    final folder = rawFolder is String ? rawFolder.trim() : '';
+    if (folder.isEmpty) {
+      throw const FormatException('视频清单格式错误：某条视频缺少 folder');
+    }
+
+    videos.add(
+      NetworkVideoEntry(
+        url: url,
+        name: name,
+        size: (item['size'] as num?)?.toInt() ?? 0,
+        folder: folder,
+        mtime: (item['mtime'] as num?)?.toInt() ?? 0,
+      ),
+    );
+  }
+
+  final rawServer = decoded['server'];
+  return NetworkVideoManifest(
+    server: rawServer is String ? rawServer.trim() : '',
+    videos: videos,
+  );
+}
+
+/// 按 folder 分组，保持服务端给出的顺序（Dart 的 Map 保持插入顺序）。
+Map<String, List<NetworkVideoEntry>> groupNetworkVideosByFolder(
+  List<NetworkVideoEntry> entries,
+) {
+  final grouped = <String, List<NetworkVideoEntry>>{};
+  for (final e in entries) {
+    (grouped[e.folder] ??= <NetworkVideoEntry>[]).add(e);
+  }
+  return grouped;
+}
 
 class ScanProgress {
   final String folderId;
@@ -74,8 +195,166 @@ class ScanService {
 
   void cancel() => _cancelled = true;
 
+  /// 添加一个网络视频源：GET {server}/api/videos.json，按 folder 分组入库。
+  ///
+  /// 网络视频 id 直接用完整 URL（主键 TEXT，稳定）；FolderItem 用
+  /// `net|server|folder` 作 id、`server/m/folder` 作 path，与本地文件夹隔离。
+  /// 刷新时先按 folder 删旧记录再插入；同 URL 的旧记录带上收藏/进度/推荐状态，
+  /// 避免刷新把用户数据冲掉。
+  Future<FolderItem> addNetworkSource(String serverUrl) async {
+    final inputServer = normalizeNetworkServer(serverUrl);
+    final fetched = await _fetchNetworkVideos(inputServer);
+    final grouped = groupNetworkVideosByFolder(fetched.videos);
+    if (grouped.isEmpty) {
+      throw Exception('服务器没有返回任何视频');
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    FolderItem? first;
+    for (final entry in grouped.entries) {
+      final folder = await _writeNetworkFolder(
+        server: fetched.server,
+        folderName: entry.key,
+        entries: entry.value,
+        now: now,
+      );
+      first ??= folder;
+    }
+    return first!;
+  }
+
+  /// 刷新一个已入库的网络源（scanFolder 遇到网络目录时走这里）。
+  Future<ScanResult> refreshNetworkFolder(String folderId) async {
+    if (!folderId.startsWith('net|')) {
+      return const ScanResult(errors: <String>['网络源记录无效']);
+    }
+    final raw = folderId.substring(4);
+    final sep = raw.indexOf('|');
+    if (sep <= 0) {
+      return const ScanResult(errors: <String>['网络源记录无效']);
+    }
+    final server = raw.substring(0, sep);
+    final folderName = raw.substring(sep + 1);
+    try {
+      final fetched = await _fetchNetworkVideos(server);
+      final entries = fetched.videos
+          .where((e) => e.folder == folderName)
+          .toList(growable: false);
+      await _writeNetworkFolder(
+        server: fetched.server,
+        folderName: folderName,
+        entries: entries,
+        now: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _folders.touchScanned(folderId);
+      await _folders.refreshVideoCount(folderId);
+      return ScanResult(added: entries.length);
+    } catch (e) {
+      return ScanResult(errors: <String>['刷新网络源失败：$e']);
+    }
+  }
+
+  Future<({String server, List<NetworkVideoEntry> videos})> _fetchNetworkVideos(
+    String serverUrl,
+  ) async {
+    final uri = Uri.parse('$serverUrl/api/videos.json');
+    // 用 dart:io 自带的 HttpClient，不引入第三方 http 包，
+    // 避免新增依赖影响现有打包流程和原生库版本。
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    late final int statusCode;
+    late final String responseBody;
+    try {
+      final request = await client.getUrl(uri);
+      final response = await request.close().timeout(const Duration(seconds: 20));
+      statusCode = response.statusCode;
+      responseBody = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw Exception('连接服务器超时：$serverUrl');
+    } catch (e) {
+      throw Exception('连接服务器失败：$e');
+    } finally {
+      client.close(force: true);
+    }
+    if (statusCode != 200) {
+      throw Exception('服务器返回 HTTP $statusCode，请检查服务是否正常');
+    }
+    try {
+      final manifest = parseNetworkVideoManifest(responseBody);
+      final server = manifest.server.isEmpty
+          ? serverUrl
+          : normalizeNetworkServer(manifest.server);
+      return (server: server, videos: manifest.videos);
+    } on FormatException catch (e) {
+      throw Exception('视频清单格式错误：${e.message}');
+    }
+  }
+
+  Future<FolderItem> _writeNetworkFolder({
+    required String server,
+    required String folderName,
+    required List<NetworkVideoEntry> entries,
+    required int now,
+  }) async {
+    final folderId = 'net|$server|$folderName';
+    final folderPath = '$server/m/$folderName';
+
+    // 刷新：先按 folder 删除旧记录再插入。
+    // 同 URL 的旧记录带上收藏/进度/推荐状态，刷新不冲掉用户数据。
+    final old = await _videos.getByFolder(folderId);
+    final oldById = <String, VideoItem>{for (final v in old) v.id: v};
+    await _videos.deleteByFolder(folderId);
+
+    final items = <VideoItem>[];
+    for (final e in entries) {
+      final previous = oldById[e.url];
+      final millis = e.mtime * 1000;
+      items.add(
+        previous != null
+            ? previous.copyWith(
+                path: e.url,
+                name: e.name,
+                folderId: folderId,
+                fileSize: e.size,
+                fileMtime: millis,
+              )
+            : VideoItem(
+                id: e.url,
+                path: e.url,
+                name: e.name,
+                folderId: folderId,
+                fileSize: e.size,
+                fileMtime: millis,
+                addedAt: now,
+              ),
+      );
+    }
+    await _videos.insertBatch(items);
+
+    final existing = await _folders.getById(folderId);
+    final folder = FolderItem(
+      id: folderId,
+      path: folderPath,
+      name: p.basename(folderName),
+      videoCount: items.length,
+      addedAt: existing?.addedAt ?? now,
+      lastScannedAt: now,
+      autoScan: existing?.autoScan ?? true,
+      available: true,
+    );
+    await _folders.insert(folder);
+    await _folders.refreshVideoCount(folderId);
+    return folder;
+  }
+
   /// 添加文件夹（不扫描，扫描由调用方单独触发）
   Future<FolderItem> addFolder(String path) async {
+    if (isNetworkVideoPath(path)) {
+      return addNetworkSource(path);
+    }
     final dir = Directory(path);
     if (!dir.existsSync()) {
       throw Exception('文件夹不存在：$path');
@@ -111,6 +390,11 @@ class ScanService {
     final folder = await _folders.getById(folderId);
     if (folder == null) {
       return const ScanResult(errors: <String>['文件夹记录不存在']);
+    }
+
+    // 网络源不能当本地目录遍历，直接走网络刷新。
+    if (isNetworkVideoPath(folder.path) || folderId.startsWith('net|')) {
+      return refreshNetworkFolder(folderId);
     }
 
     final dir = Directory(folder.path);
@@ -227,7 +511,8 @@ class ScanService {
 
       // 不在本文件夹的 path 集合里：可能是换了路径的同一文件
       final sameFile = await _videos.findByFingerprint(size, mtime, normPath);
-      if (sameFile != null) {
+      // 别把网络视频误判成「换了路径的同一文件」
+      if (sameFile != null && !isNetworkVideoPath(sameFile.path)) {
         await _videos.updatePath(sameFile.id, normPath, p.basename(f.path));
         relocated++;
         continue;
@@ -276,6 +561,7 @@ class ScanService {
       final dbVideos = await _videos.getByFolder(folderId);
       for (final v in dbVideos) {
         if (_cancelled) break;
+        if (isNetworkVideoPath(v.path)) continue; // 网络记录不在这里清理
         if (!currentPaths.contains(p.normalize(v.path))) {
           await _videos.delete(v.id);
           _deleteThumbFile(v.thumbnailPath);
@@ -361,7 +647,10 @@ class ScanService {
   Future<int> fillMissingMetadata({
     void Function(int done, int total)? onProgress,
   }) async {
-    final list = await _videos.getVideosWithoutDuration();
+    // 网络视频走不到本地文件，ffmpeg 探测会失败；元数据由播放时补
+    final list = (await _videos.getVideosWithoutDuration())
+        .where((v) => !isNetworkVideoPath(v.path))
+        .toList();
     var done = 0;
     for (final v in list) {
       if (_cancelled) break;
@@ -386,7 +675,10 @@ class ScanService {
     void Function(int done, int total)? onProgress,
     bool Function()? isCancelled,
   }) async {
-    final list = await _videos.getVideosWithMissingThumbnail();
+    // 网络视频没有本地文件，跳过 ffmpeg 缩略图任务
+    final list = (await _videos.getVideosWithMissingThumbnail())
+        .where((v) => !isNetworkVideoPath(v.path))
+        .toList();
     AppLog.w('thumb', '待生成 ${list.length} 条');
     if (list.isEmpty) return 0;
 
@@ -437,7 +729,8 @@ class ScanService {
     final v = await _videos.getById(videoId);
     if (v == null) return;
 
-    if (deleteFile) {
+    // 网络视频只删数据库记录，不碰文件系统
+    if (deleteFile && !isNetworkVideoPath(v.path)) {
       final f = File(v.path);
       if (f.existsSync()) {
         if (toRecycleBin) {
@@ -469,6 +762,7 @@ class ScanService {
     final videos = await _videos.getByFolder(folderId);
     if (deleteFiles) {
       for (final v in videos) {
+        if (isNetworkVideoPath(v.path)) continue; // 网络视频只删记录
         final f = File(v.path);
         if (f.existsSync()) {
           try {
@@ -485,6 +779,7 @@ class ScanService {
 
   void _deleteThumbFile(String? path) {
     if (path == null || path.isEmpty) return;
+    if (isNetworkVideoPath(path)) return; // 网络视频没有本地缩略图文件
     try {
       final f = File(path);
       if (f.existsSync()) f.deleteSync();
